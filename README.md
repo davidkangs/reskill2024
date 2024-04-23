@@ -1,2 +1,2 @@
 # reskill2024
-edu002
+edu02
