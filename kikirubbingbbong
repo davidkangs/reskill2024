@@ -1,0 +1,78 @@
+import os
+from qgis.core import QgsVectorLayer, QgsCoordinateReferenceSystem
+import processing
+from qgis.core import QgsProject, QgsPalLayerSettings, QgsVectorLayerSimpleLabeling
+
+folder_path = r"D:\test_data"
+
+for root, folders, files in os.walk(folder_path):
+    for file in files:
+        shpfile_path = os.path.join(root, file)
+        if shpfile_path.endswith('.shp'):
+            layer_name = os.path.splitext(file)[0]
+            vector_layer = QgsVectorLayer(shpfile_path, layer_name, 'ogr')
+            
+            reprojected_layer = processing.run("native:reprojectlayer", 
+                { 'TARGET_CRS': 'EPSG:5181', 
+                'INPUT': vector_layer, 'OUTPUT': f"memory:{file}"})['OUTPUT']
+            QgsProject.instance().addMapLayer(reprojected_layer)
+            
+layers = QgsProject.instance().mapLayers()
+
+for layer_id, layer in layers.items():
+    if '초등학교' in layer.name():
+        ele_layer = layer
+    elif '편의점' in layer.name():
+        con_layer = layer
+    else:
+        sejong_layer = layer
+
+ele_clip = processing.run("native:clip",{ 'INPUT' : ele_layer,
+    'OUTPUT' : 'TEMPORARY_OUTPUT', 
+    'OVERLAY' : sejong_layer})['OUTPUT']
+
+
+buffer_distance= QInputDialog.getInt(None,'buffer',"버퍼 영역을 입력해주세요")[0]
+buffered_ele = processing.run("native:buffer",
+    {'INPUT': ele_clip, 'DISTANCE': buffer_distance, 'SEGMENTS': 5,
+    'END_CAP_STYLE': 0, 'JOIN_STYLE': 0, 'MITER_LIMIT': 2,
+    'DISSOLVE': False, 'OUTPUT': 'memory:'})['OUTPUT']
+
+
+con_in_ele = processing.run("native:countpointsinpolygon", {
+    'CLASSFIELD': '',
+    'FIELD': 'NUMPOINTS',
+    'OUTPUT': 'TEMPORARY_OUTPUT',
+    'POINTS': con_layer,
+    'POLYGONS': buffered_ele,
+    'WEIGHT': ''})['OUTPUT']
+QgsProject.instance().addMapLayer(con_in_ele)
+
+grid_size=QInputDialog.getInt(None,'grid',"그리드 사이즈를 입력해주세요")[0]
+grid_sq = processing.run('native:creategrid', {
+    'CRS': QgsProject.instance().crs(),
+    'EXTENT': sejong_layer,
+    'HOVERLAY': 0,
+    'HSPACING': grid_size,
+    'VSPACING': grid_size,
+    'TYPE': 4,
+    'VOVERLAY': 0,
+    'OUTPUT': 'TEMPORARY_OUTPUT'
+})['OUTPUT']
+
+grid_sejong = processing.run("native:extractbylocation", {
+    'INPUT': grid_sq,
+    'INTERSECT': sejong_layer,
+    'OUTPUT': 'TEMPORARY_OUTPUT',
+    'PREDICATE': [0]
+})['OUTPUT']
+    
+con_in_sejong = processing.run("native:countpointsinpolygon", {
+    'CLASSFIELD': '',
+    'FIELD': 'NUMPOINTS',
+    'OUTPUT': 'TEMPORARY_OUTPUT',
+    'POINTS': con_layer,
+    'POLYGONS': grid_sejong,
+    'WEIGHT': ''})['OUTPUT']
+QgsProject.instance().addMapLayer(con_in_sejong)
+
